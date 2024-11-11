@@ -1,0 +1,12 @@
+torch
+numpy
+scikit-learn
+gensim
+pytorch-pretrained-bert
+elmoformanylangs
+transformers
+pandas
+nltk
+regex
+tqdm
+setuptools
