@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 from transformers import BertModel
+from sklearn.metrics import f1_score, precision_score, recall_score
 from utils import SarcasmDataset, prepare_bert_data
+import os
 
 class SarcasmDetector(nn.Module):
     def __init__(self, dropout_rate=0.3, freeze_bert=True):
@@ -92,6 +94,37 @@ def train_epoch(model, train_loader, optimizer, criterion, device):
     
     return total_loss / len(train_loader)
 
+def evaluate(model, test_loader, criterion, device):
+    model.eval()
+    total_loss = 0
+    correct = 0
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for batch in test_loader:
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch['labels'].to(device)
+            
+            outputs = model(input_ids, attention_mask)
+            loss = criterion(outputs, labels)
+            total_loss += loss.item()
+            
+            preds = outputs.argmax(dim=1)
+            correct += (preds == labels).sum().item()
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+    
+    avg_loss = total_loss / len(test_loader)
+    accuracy = correct / len(test_loader.dataset)
+    f1 = f1_score(all_labels, all_preds, average='weighted')
+    precision = precision_score(all_labels, all_preds, average='weighted')
+    recall = recall_score(all_labels, all_preds, average='weighted')
+    
+    return avg_loss, accuracy, f1, precision, recall
+
 if __name__ == "__main__":
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -110,16 +143,41 @@ if __name__ == "__main__":
     
     training_params = {
         'learning_rate': 2e-5,
-        'num_epochs': 5,
+        'num_epochs': 25,
         'batch_size': 16
     }
-
+    
+    model_path = 'sarcasm_detector_model.pth'
+    
     model = SarcasmDetector(**model_params).to(device)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=training_params['learning_rate'])
     criterion = nn.CrossEntropyLoss()
     
+    if os.path.exists(model_path):
+        print(f"Loading model from {model_path}")
+        model.load_state_dict(torch.load(model_path))
+        model.to(device)
+        
+        # Evaluate the model
+        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
+        print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
+        print(f'Test F1 Score: {test_f1:.4f}, Test Precision: {test_precision:.4f}, Test Recall: {test_recall:.4f}')
+    
     print("Training model...")
     for epoch in range(training_params['num_epochs']):
         loss = train_epoch(model, train_loader, optimizer, criterion, device)
         print(f'Epoch {epoch+1}/{training_params["num_epochs"]}, Loss: {loss:.4f}')
+        if epoch % 5 == 0:
+            test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
+            print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
+        
+    print("Training complete!")
+    # Save the model
+    torch.save(model.state_dict(), 'sarcasm_detector_model.pth')
+    print("Model saved to sarcasm_detector_model.pth")
+    
+    # Evaluate the model
+    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
+    print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
+    print(f'Test F1 Score: {test_f1:.4f}, Test Precision: {test_precision:.4f}, Test Recall: {test_recall:.4f}')
