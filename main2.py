@@ -5,17 +5,6 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 from utils import SarcasmDataset, prepare_bert_data
 import os
 
-class Attention(nn.Module):
-    def __init__(self, lstm_hidden_size):
-        super(Attention, self).__init__()
-        self.attention = nn.Linear(lstm_hidden_size * 2, 1)
-
-    def forward(self, lstm_out):
-        # Apply attention mechanism
-        attn_weights = torch.softmax(self.attention(lstm_out), dim=1)
-        context_vector = torch.sum(attn_weights * lstm_out, dim=1)
-        return context_vector
-
 class SarcasmDetector(nn.Module):
     def __init__(self, dropout_rate=0.3, freeze_bert=True):
         super(SarcasmDetector, self).__init__()
@@ -50,9 +39,6 @@ class SarcasmDetector(nn.Module):
             dropout=dropout_rate
         )
         
-        # Attention layer
-        self.attention = Attention(self.lstm_hidden_size)
-        
         # Dense layers
         self.dense1 = nn.Linear(self.lstm_hidden_size * 2, self.dense_hidden_size)
         self.dense2 = nn.Linear(self.dense_hidden_size, 2)
@@ -75,12 +61,10 @@ class SarcasmDetector(nn.Module):
         
         # BiLSTM sequence learning
         lstm_out, _ = self.lstm(lstm_in)
-        
-        # Apply attention
-        context_vector = self.attention(lstm_out)
+        final_hidden = lstm_out[:, -1, :]
         
         # Classification layers
-        x = self.dense1(context_vector)
+        x = self.dense1(final_hidden)
         x = self.relu(x)
         x = self.dropout(x)
         logits = self.dense2(x)
@@ -147,8 +131,8 @@ if __name__ == "__main__":
     print("Using device:", device)
     
     train_loader, test_loader, tokenizer = prepare_bert_data(
-        'data/ghosh/train.txt',
-        'data/ghosh/test.txt',
+        'data/riloff/train.txt',
+        'data/riloff/test.txt',
         batch_size=16
     )
     
@@ -163,19 +147,12 @@ if __name__ == "__main__":
         'batch_size': 16
     }
     
-    model_path = 'sarcasm_detector_model_i.pth'
+    model_path = 'sarcasm_detector_model.pth'
     
     model = SarcasmDetector(**model_params).to(device)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=training_params['learning_rate'])
     criterion = nn.CrossEntropyLoss()
-    
-    # Learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.5)
-    
-    best_loss = float('inf')
-    patience = 5
-    patience_counter = 0
     
     if os.path.exists(model_path):
         print(f"Loading model from {model_path}")
@@ -189,29 +166,18 @@ if __name__ == "__main__":
     
     print("Training model...")
     for epoch in range(training_params['num_epochs']):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
-        print(f'Epoch {epoch+1}/{training_params["num_epochs"]}, Train Loss: {train_loss:.4f}')
+        loss = train_epoch(model, train_loader, optimizer, criterion, device)
+        print(f'Epoch {epoch+1}/{training_params["num_epochs"]}, Loss: {loss:.4f}')
+        if epoch % 5 == 0:
+            test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
+            print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
         
-        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
-        print(f'Epoch {epoch+1}/{training_params["num_epochs"]}, Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
-
-        scheduler.step(test_loss)
-
-        if test_loss < best_loss:
-            best_loss = test_loss
-            patience_counter = 0
-            torch.save(model.state_dict(), model_path)
-            print(f"Model saved to {model_path}")
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print("Early stopping triggered")
-                break
-    
     print("Training complete!")
-
-    model.load_state_dict(torch.load(model_path))
+    # Save the model
+    torch.save(model.state_dict(), 'sarcasm_detector_model.pth')
+    print("Model saved to sarcasm_detector_model.pth")
     
+    # Evaluate the model
     test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
     print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
     print(f'Test F1 Score: {test_f1:.4f}, Test Precision: {test_precision:.4f}, Test Recall: {test_recall:.4f}')
