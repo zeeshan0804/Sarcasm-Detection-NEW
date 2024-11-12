@@ -183,8 +183,8 @@ if __name__ == "__main__":
     print("Using device:", device)
     
     train_loader, test_loader, tokenizer = prepare_bert_data(
-        'data/ghosh/train.txt',
-        'data/ghosh/test.txt',
+        'data/Mishra/train.txt',
+        'data/Mishra/test.txt',
         'data/glove.6B.300d.txt',
         batch_size=16
     )
@@ -203,6 +203,11 @@ if __name__ == "__main__":
     model_path = 'sarcasm_detector_model_i.pth'
     
     model = SarcasmDetector(**model_params).to(device)
+    
+    # Use DataParallel to utilize multiple GPUs
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs")
+        model = nn.DataParallel(model)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=training_params['learning_rate'])
     criterion = nn.CrossEntropyLoss()
