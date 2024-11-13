@@ -147,8 +147,8 @@ if __name__ == "__main__":
     print("Using device:", device)
     
     train_loader, test_loader, tokenizer = prepare_bert_data(
-        'data/ghosh/train.txt',
-        'data/ghosh/test.txt',
+        'data/headline/train.txt',
+        'data/headline/test.txt',
         batch_size=16
     )
     
