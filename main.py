@@ -117,8 +117,10 @@ def evaluate(model, test_loader, criterion, device):
     all_preds = []
     all_labels = []
     
+    print("\nDetailed evaluation metrics:")
+    
     with torch.no_grad():
-        for batch in test_loader:
+        for batch_idx, batch in enumerate(test_loader):
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
             labels = batch['labels'].to(device)
@@ -130,14 +132,50 @@ def evaluate(model, test_loader, criterion, device):
             preds = outputs.argmax(dim=1)
             correct += (preds == labels).sum().item()
             
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
+            # Convert to numpy for sklearn metrics
+            batch_preds = preds.cpu().numpy()
+            batch_labels = labels.cpu().numpy()
+            
+            all_preds.extend(batch_preds)
+            all_labels.extend(batch_labels)
+            
+            # Print first few predictions from each batch
+            if batch_idx < 3:  # Show first 3 batches
+                print(f"\nBatch {batch_idx}:")
+                for i in range(min(5, len(batch_preds))):  # Show first 5 examples
+                    print(f"Pred: {batch_preds[i]}, True: {batch_labels[i]}")
     
+    # Convert to numpy arrays for analysis
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+    
+    # Calculate metrics
     avg_loss = total_loss / len(test_loader)
     accuracy = correct / len(test_loader.dataset)
+    
+    # Calculate confusion matrix
+    from sklearn.metrics import confusion_matrix
+    cm = confusion_matrix(all_labels, all_preds)
+    print("\nConfusion Matrix:")
+    print(cm)
+    
+    # Calculate detailed metrics
     f1 = f1_score(all_labels, all_preds, average='weighted')
     precision = precision_score(all_labels, all_preds, average='weighted')
     recall = recall_score(all_labels, all_preds, average='weighted')
+    
+    # Print class distribution
+    print("\nClass distribution:")
+    print("True labels:", np.bincount(all_labels))
+    print("Predictions:", np.bincount(all_preds))
+    
+    print(f"\nDetailed metrics:")
+    print(f"Total samples: {len(all_labels)}")
+    print(f"Correct predictions: {correct}")
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"F1 Score: {f1:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
     
     return avg_loss, accuracy, f1, precision, recall
 
