@@ -4,6 +4,7 @@ from transformers import BertModel
 from sklearn.metrics import f1_score, precision_score, recall_score
 from utils import SarcasmDataset, prepare_bert_data
 import os
+import numpy as np
 
 class Attention(nn.Module):
     def __init__(self, lstm_hidden_size):
