@@ -5,11 +5,10 @@ import pandas as pd
 import numpy as np
 
 class SarcasmDataset(Dataset):
-    def __init__(self, texts, labels, tokenizer, glove_embeddings, max_length=128):
+    def __init__(self, texts, labels, tokenizer, max_length=128):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
-        self.glove_embeddings = glove_embeddings
         self.max_length = max_length
 
     def __len__(self):
@@ -30,38 +29,15 @@ class SarcasmDataset(Dataset):
             return_tensors='pt'
         )
 
-        # Encode the text using GloVe embeddings
-        glove_embedding = self.get_glove_embedding(text)
-
         return {
             'input_ids': encoding['input_ids'].flatten(),
             'attention_mask': encoding['attention_mask'].flatten(),
-            'glove_embedding': torch.tensor(glove_embedding, dtype=torch.float),
             'labels': torch.tensor(label, dtype=torch.long)
         }
 
-    def get_glove_embedding(self, text):
-        words = text.split()
-        embedding = np.zeros((self.max_length, self.glove_embeddings.shape[1]))
-        for i, word in enumerate(words[:self.max_length]):
-            if word in self.glove_embeddings:
-                embedding[i] = self.glove_embeddings[word]
-        return embedding
-
-def load_glove_embeddings(glove_path):
-    embeddings = {}
-    with open(glove_path, 'r') as f:
-        for line in f:
-            values = line.split()
-            word = values[0]
-            vector = np.asarray(values[1:], dtype='float32')
-            embeddings[word] = vector
-    return embeddings
-
-def prepare_bert_data(train_path, test_path, glove_path, batch_size=16):
+def prepare_bert_data(train_path, test_path, batch_size=16):
     
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    glove_embeddings = load_glove_embeddings(glove_path)
     
     # Load train data
     train_texts, train_labels = [], []
@@ -85,8 +61,8 @@ def prepare_bert_data(train_path, test_path, glove_path, batch_size=16):
     # print("Test label distribution:", pd.Series(test_labels).value_counts())
 
     # Create datasets
-    train_dataset = SarcasmDataset(train_texts, train_labels, tokenizer, glove_embeddings)
-    test_dataset = SarcasmDataset(test_texts, test_labels, tokenizer, glove_embeddings)
+    train_dataset = SarcasmDataset(train_texts, train_labels, tokenizer)
+    test_dataset = SarcasmDataset(test_texts, test_labels, tokenizer)
 
     # Create dataloaders
     train_loader = DataLoader(
@@ -102,3 +78,17 @@ def prepare_bert_data(train_path, test_path, glove_path, batch_size=16):
     )
 
     return train_loader, test_loader, tokenizer
+
+# # Usage
+# if __name__ == "__main__":
+#     train_loader, test_loader, tokenizer = prepare_bert_data(
+#         'data/riloff/train.txt',
+#         'data/riloff/test.txt',
+#         batch_size=16
+#     )
+    
+#     # Example of accessing a batch
+#     batch = next(iter(train_loader))
+#     print("Input shape:", batch['input_ids'].shape)
+#     print("Attention mask shape:", batch['attention_mask'].shape)
+#     print("Labels shape:", batch['labels'].shape)

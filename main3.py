@@ -179,8 +179,12 @@ def evaluate(model, test_loader, criterion, device):
 
 if __name__ == "__main__":
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("Using device:", device)
+    if torch.backends.mps.is_available():
+        device = torch.device('mps')
+        print("Using device: MPS")
+    else:
+        device = torch.device('cpu')
+        print("Using device: CPU")
     
     train_loader, test_loader, tokenizer = prepare_bert_data(
         'data/Mishra/train.txt',
@@ -203,11 +207,6 @@ if __name__ == "__main__":
     model_path = 'sarcasm_detector_model_i.pth'
     
     model = SarcasmDetector(**model_params).to(device)
-    
-    # Use DataParallel to utilize multiple GPUs
-    if torch.cuda.device_count() > 1:
-        print(f"Using {torch.cuda.device_count()} GPUs")
-        model = nn.DataParallel(model)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=training_params['learning_rate'])
     criterion = nn.CrossEntropyLoss()
