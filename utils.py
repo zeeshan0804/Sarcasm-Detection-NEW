@@ -3,6 +3,7 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import BertTokenizer
 import pandas as pd
 import numpy as np
+import re
 
 class SarcasmDataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_length=128):
@@ -17,6 +18,9 @@ class SarcasmDataset(Dataset):
     def __getitem__(self, idx):
         text = str(self.texts[idx])
         label = self.labels[idx]
+
+        # Preprocess the text
+        text = self.preprocess_text(text)
 
         # Encode the text using BERT tokenizer
         encoding = self.tokenizer.encode_plus(
@@ -34,6 +38,15 @@ class SarcasmDataset(Dataset):
             'attention_mask': encoding['attention_mask'].flatten(),
             'labels': torch.tensor(label, dtype=torch.long)
         }
+
+    def preprocess_text(self, text):
+        # Lowercase the text
+        text = text.lower()
+        # Remove special characters and punctuation
+        text = re.sub(r'[^a-zA-Z0-9\s]', '', text)
+        # Remove extra whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
 
 def prepare_bert_data(train_path, test_path, batch_size=16):
     
