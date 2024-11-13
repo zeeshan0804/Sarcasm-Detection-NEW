@@ -4,6 +4,7 @@ from transformers import BertTokenizer
 import pandas as pd
 import numpy as np
 import re
+import argparse
 
 class SarcasmDataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_length=128):
@@ -48,9 +49,12 @@ class SarcasmDataset(Dataset):
         text = re.sub(r'\s+', ' ', text).strip()
         return text
 
-def prepare_bert_data(train_path, test_path, batch_size=16):
+def prepare_bert_data(dataset_name, batch_size=16):
     
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    
+    train_path = f'data/{dataset_name}/train.txt'
+    test_path = f'data/{dataset_name}/test.txt'
     
     # Load train data
     train_texts, train_labels = [], []
@@ -92,12 +96,16 @@ def prepare_bert_data(train_path, test_path, batch_size=16):
 
     return train_loader, test_loader, tokenizer
 
-# # Usage
 # if __name__ == "__main__":
+#     parser = argparse.ArgumentParser(description='Prepare BERT data')
+#     parser.add_argument('--dataset', type=str, required=True, help='Name of the dataset')
+#     parser.add_argument('--batch_size', type=int, default=16, help='Batch size for DataLoader')
+    
+#     args = parser.parse_args()
+    
 #     train_loader, test_loader, tokenizer = prepare_bert_data(
-#         'data/riloff/train.txt',
-#         'data/riloff/test.txt',
-#         batch_size=16
+#         dataset_name=args.dataset,
+#         batch_size=args.batch_size
 #     )
     
 #     # Example of accessing a batch

@@ -4,6 +4,7 @@ from transformers import BertModel
 from sklearn.metrics import f1_score, precision_score, recall_score
 from utils import SarcasmDataset, prepare_bert_data
 import os
+import argparse
 
 class Attention(nn.Module):
     def __init__(self, lstm_hidden_size):
@@ -142,14 +143,21 @@ def evaluate(model, test_loader, criterion, device):
     return avg_loss, accuracy, f1, precision, recall
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Train and evaluate Sarcasm Detector')
+    parser.add_argument('--dataset', type=str, required=True, help='Name of the dataset')
+    parser.add_argument('--batch_size', type=int, default=16, help='Batch size for DataLoader')
+    parser.add_argument('--learning_rate', type=float, default=2e-5, help='Learning rate for optimizer')
+    parser.add_argument('--num_epochs', type=int, default=25, help='Number of training epochs')
+    parser.add_argument('--model_path', type=str, default='sarcasm_detector_model.pth', help='Path to save the trained model')
+    
+    args = parser.parse_args()
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
     
     train_loader, test_loader, tokenizer = prepare_bert_data(
-        'data/headline/train.txt',
-        'data/headline/test.txt',
-        batch_size=16
+        dataset_name=args.dataset,
+        batch_size=args.batch_size
     )
     
     model_params = {
@@ -158,12 +166,10 @@ if __name__ == "__main__":
     }
     
     training_params = {
-        'learning_rate': 2e-5,
-        'num_epochs': 25,
-        'batch_size': 16
+        'learning_rate': args.learning_rate,
+        'num_epochs': args.num_epochs,
+        'batch_size': args.batch_size
     }
-    
-    model_path = 'sarcasm_detector_model_i.pth'
     
     model = SarcasmDetector(**model_params).to(device)
     
@@ -177,9 +183,9 @@ if __name__ == "__main__":
     patience = 5
     patience_counter = 0
     
-    if os.path.exists(model_path):
-        print(f"Loading model from {model_path}")
-        model.load_state_dict(torch.load(model_path))
+    if os.path.exists(args.model_path):
+        print(f"Loading model from {args.model_path}")
+        model.load_state_dict(torch.load(args.model_path))
         model.to(device)
         
         # Evaluate the model
@@ -200,8 +206,8 @@ if __name__ == "__main__":
         if test_loss < best_loss:
             best_loss = test_loss
             patience_counter = 0
-            torch.save(model.state_dict(), model_path)
-            print(f"Model saved to {model_path}")
+            torch.save(model.state_dict(), args.model_path)
+            print(f"Model saved to {args.model_path}")
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -210,7 +216,7 @@ if __name__ == "__main__":
     
     print("Training complete!")
 
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(args.model_path))
     
     test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
     print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
