@@ -272,6 +272,7 @@ def evaluate(model, test_loader, criterion, device):
     
     return avg_loss, accuracy, f1, precision, recall
 
+# Modify optimizer and scheduler section
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
@@ -284,9 +285,20 @@ if __name__ == "__main__":
     
     model = SarcasmDetector(dropout_rate=0.3, freeze_bert=True).to(device)
     
-    optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5)
+    # Try a larger learning rate
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)  # increased from 2e-5
+    
+    # Define the criterion (loss function)
     criterion = nn.CrossEntropyLoss()
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.5)
+    
+    # Make scheduler more aggressive
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        patience=2,  # reduced from 3
+        factor=0.1,  # more aggressive reduction from 0.5
+        min_lr=1e-6
+    )
     
     model_path = 'sarcasm_detector_model_i.pth'
     
@@ -308,12 +320,19 @@ if __name__ == "__main__":
         train_loss, epoch_time = train_epoch(model, train_loader, optimizer, criterion, device)
         total_train_time += epoch_time
         
-        print(f'Train Loss: {train_loss:.4f}')
+        # Evaluate on training set
+        print("\nEvaluating on training set:")
+        train_loss, train_accuracy, train_f1, train_precision, train_recall = evaluate(model, train_loader, criterion, device)
+        
+        # Evaluate on test set
+        print("\nEvaluating on test set:")
+        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
+        
+        print(f'\nEpoch Summary:')
+        print(f'Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.4f}')
+        print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
         print(f'Epoch Time: {epoch_time:.2f}s')
         print(f'Total Training Time: {total_train_time/60:.2f}m')
-        
-        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
-        print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
 
         scheduler.step(test_loss)
 
