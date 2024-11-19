@@ -13,7 +13,7 @@ import time  # Add at top with other imports
 class EmojiEncoder(nn.Module):
     """Encodes emoji sequences into fixed-dimensional embeddings."""
     
-    def __init__(self, emoji_dim: int = 768, model_path: str = 'emoji2vec.bin'):  # Changed to match BERT dim
+    def __init__(self, emoji_dim: int = 300, model_path: str = 'emoji2vec.bin'):  # Back to 300
         """
         Args:
             emoji_dim: Output dimension of emoji embeddings
@@ -77,27 +77,30 @@ class SarcasmDetector(nn.Module):
     def __init__(self, dropout_rate=0.3, freeze_bert=True):
         super(SarcasmDetector, self).__init__()
         
+        # BERT components
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         if freeze_bert:
             for param in self.bert.parameters():
                 param.requires_grad = False
         self.bert_dim = 768
         
+        # Emoji components
         self.emoji_encoder = EmojiEncoder()
         
+        # Channels and sizes
         self.cnn_out_channels = 256
         self.lstm_hidden_size = 128
         self.dense_hidden_size = 64
         
-        # Both BERT and emoji features will go through these layers
-        self.conv1d = nn.Conv1d(
+        # BERT pathway layers
+        self.bert_conv = nn.Conv1d(
             in_channels=self.bert_dim,
             out_channels=self.cnn_out_channels,
             kernel_size=3,
             padding=1
         )
         
-        self.lstm = nn.LSTM(
+        self.bert_lstm = nn.LSTM(
             input_size=self.cnn_out_channels,
             hidden_size=self.lstm_hidden_size,
             num_layers=2,
@@ -106,11 +109,31 @@ class SarcasmDetector(nn.Module):
             dropout=dropout_rate
         )
         
-        self.attention = Attention(self.lstm_hidden_size)
+        self.bert_attention = Attention(self.lstm_hidden_size)
         
-        # Update fusion layer dimension - now both features are same size
-        combined_features_size = self.lstm_hidden_size * 4  # 2 features × (lstm_hidden_size * 2)
+        # Emoji pathway layers
+        self.emoji_conv = nn.Conv1d(
+            in_channels=300,  # Original emoji dimension
+            out_channels=self.cnn_out_channels,
+            kernel_size=3,
+            padding=1
+        )
+        
+        self.emoji_lstm = nn.LSTM(
+            input_size=self.cnn_out_channels,
+            hidden_size=self.lstm_hidden_size,
+            num_layers=2,
+            bidirectional=True,
+            batch_first=True,
+            dropout=dropout_rate
+        )
+        
+        self.emoji_attention = Attention(self.lstm_hidden_size)
+        
+        # Fusion and classification layers
+        combined_features_size = (self.lstm_hidden_size * 4)  # 2 * (lstm_hidden_size * 2)
         self.fusion = nn.Linear(combined_features_size, self.dense_hidden_size)
+        
         self.dense1 = nn.Linear(self.dense_hidden_size, self.dense_hidden_size)
         self.dense2 = nn.Linear(self.dense_hidden_size, 2)
         
@@ -118,27 +141,34 @@ class SarcasmDetector(nn.Module):
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)
 
-    def process_through_layers(self, embeddings):
+    def process_bert_features(self, embeddings):
         cnn_in = embeddings.permute(0, 2, 1)
-        cnn_out = self.relu(self.conv1d(cnn_in))
+        cnn_out = self.relu(self.bert_conv(cnn_in))
         lstm_in = cnn_out.permute(0, 2, 1)
         
-        lstm_out, _ = self.lstm(lstm_in)
-        features = self.attention(lstm_out)
+        lstm_out, _ = self.bert_lstm(lstm_in)
+        features = self.bert_attention(lstm_out)
+        return features
+
+    def process_emoji_features(self, embeddings):
+        cnn_in = embeddings.permute(0, 2, 1)
+        cnn_out = self.relu(self.emoji_conv(cnn_in))
+        lstm_in = cnn_out.permute(0, 2, 1)
+        
+        lstm_out, _ = self.emoji_lstm(lstm_in)
+        features = self.emoji_attention(lstm_out)
         return features
 
     def forward(self, input_ids, attention_mask, raw_texts):
-        # Process text through BERT
+        # Process text through BERT pathway
         with torch.no_grad():
             bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         bert_embeddings = bert_output.last_hidden_state
+        text_features = self.process_bert_features(bert_embeddings)
         
-        # Process text features
-        text_features = self.process_through_layers(bert_embeddings)
-        
-        # Process emoji features
+        # Process emoji through emoji pathway
         emoji_embeddings = self.emoji_encoder(raw_texts)
-        emoji_features = self.process_through_layers(emoji_embeddings)
+        emoji_features = self.process_emoji_features(emoji_embeddings)
         
         # Combine features
         combined_features = torch.cat([text_features, emoji_features], dim=1)
