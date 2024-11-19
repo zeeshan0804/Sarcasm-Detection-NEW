@@ -74,7 +74,7 @@ class Attention(nn.Module):
         return context_vector
 
 class SarcasmDetector(nn.Module):
-    def __init__(self, dropout_rate=0.3, freeze_bert=False):  # Unfreeze BERT
+    def __init__(self, dropout_rate=0.5, freeze_bert=False):  # Increased dropout
         super(SarcasmDetector, self).__init__()
         
         # BERT components
@@ -93,8 +93,8 @@ class SarcasmDetector(nn.Module):
         
         # Channels and sizes
         self.cnn_out_channels = 256
-        self.lstm_hidden_size = 128
-        self.dense_hidden_size = 128  # increased from 64
+        self.lstm_hidden_size = 256  # doubled
+        self.dense_hidden_size = 256  # doubled
         
         # BERT pathway layers
         self.bert_conv = nn.Conv1d(
@@ -145,6 +145,14 @@ class SarcasmDetector(nn.Module):
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)
 
+        # Add batch normalization
+        self.bert_bn = nn.BatchNorm1d(self.cnn_out_channels)
+        self.emoji_bn = nn.BatchNorm1d(self.cnn_out_channels)
+        
+        # Add residual connections
+        self.bert_residual = nn.Linear(self.bert_dim, self.lstm_hidden_size * 2)  # Match LSTM bidirectional output
+        self.emoji_residual = nn.Linear(300, self.lstm_hidden_size * 2)  # Match LSTM bidirectional output
+
     def process_bert_features(self, embeddings):
         cnn_in = embeddings.permute(0, 2, 1)
         cnn_out = self.relu(self.bert_conv(cnn_in))
@@ -164,19 +172,23 @@ class SarcasmDetector(nn.Module):
         return features
 
     def forward(self, input_ids, attention_mask, raw_texts):
-        # Process text through BERT pathway with gradients
+        # Process BERT with residual connection
         bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         bert_embeddings = self.bert_norm(bert_output.last_hidden_state)
+        bert_residual = self.bert_residual(bert_embeddings.mean(dim=1))  # [batch, lstm_hidden_size * 2]
         
-        # Process emoji pathway with normalization
+        # Process emoji with residual connection
         emoji_embeddings = self.emoji_encoder(raw_texts)
         emoji_embeddings = self.emoji_norm(emoji_embeddings)
+        emoji_residual = self.emoji_residual(emoji_embeddings.mean(dim=1))  # [batch, lstm_hidden_size * 2]
         
-        # Process text through BERT pathway
-        text_features = self.process_bert_features(bert_embeddings)
+        # Main pathways with proper dimensions
+        text_features = self.process_bert_features(bert_embeddings)  # [batch, lstm_hidden_size * 2]
+        emoji_features = self.process_emoji_features(emoji_embeddings)  # [batch, lstm_hidden_size * 2]
         
-        # Process emoji through emoji pathway
-        emoji_features = self.process_emoji_features(emoji_embeddings)
+        # Now dimensions match for residual connections
+        text_features = text_features + bert_residual  # Both are [batch, lstm_hidden_size * 2]
+        emoji_features = emoji_features + emoji_residual  # Both are [batch, lstm_hidden_size * 2]
         
         # Combine features
         combined_features = torch.cat([text_features, emoji_features], dim=1)
@@ -289,36 +301,46 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
     
-    train_loader, test_loader, tokenizer, class_weights = prepare_bert_data(
+    train_loader, val_loader, test_loader, tokenizer, class_weights = prepare_bert_data(
         'data/iSarcasmEval/train.txt',
         'data/iSarcasmEval/test.txt',
-        batch_size=8  # Reduced from 16
+        batch_size=32  # Increased batch size
     )
     
-    model = SarcasmDetector(dropout_rate=0.3, freeze_bert=False).to(device)
+    model = SarcasmDetector(dropout_rate=0.5, freeze_bert=False).to(device)
     
     # Separate BERT and task-specific parameters for different learning rates
     bert_params = list(model.bert.parameters())
     other_params = [p for n, p in model.named_parameters() if not n.startswith('bert.')]
     
     optimizer = torch.optim.AdamW([
-        {'params': bert_params, 'lr': 1e-5},  # Reduced from 2e-5
-        {'params': other_params, 'lr': 5e-4}  # Increased from 1e-4
+        {'params': model.bert.parameters(), 'lr': 2e-5},
+        {'params': model.emoji_encoder.parameters(), 'lr': 1e-4},
+        {'params': [p for n, p in model.named_parameters() 
+                   if not n.startswith('bert.') and not n.startswith('emoji_encoder.')], 
+         'lr': 1e-3}
     ])
     
-    # Define scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='min',
-        patience=2,
-        factor=0.1,
-        min_lr=1e-6,
-        verbose=True  # Added to print when learning rate changes
-    )
+    # Focal Loss instead of CrossEntropy
+    class FocalLoss(nn.Module):
+        def __init__(self, gamma=2):
+            super().__init__()
+            self.gamma = gamma
+            
+        def forward(self, input, target):
+            ce_loss = nn.functional.cross_entropy(input, target, reduction='none')
+            pt = torch.exp(-ce_loss)
+            focal_loss = ((1 - pt) ** self.gamma * ce_loss).mean()
+            return focal_loss
     
-    # More aggressive class weights
-    class_weights = torch.FloatTensor([1.0, 3.5]).to(device)  # Higher weight for minority class
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    criterion = FocalLoss(gamma=2)
+    
+    # Use cosine annealing scheduler
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, 
+        T_max=25,  # number of epochs
+        eta_min=1e-6
+    )
     
     # Gradient clipping
     max_grad_norm = 1.0

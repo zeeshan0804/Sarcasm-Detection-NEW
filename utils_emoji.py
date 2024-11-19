@@ -35,7 +35,7 @@ class SarcasmDataset(Dataset):
             'raw_text': text
         }
 
-def prepare_bert_data(train_path, test_path, batch_size=16):
+def prepare_bert_data(train_path, test_path, batch_size=16, val_split=0.1):
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     
     # Load and analyze train data
@@ -78,18 +78,22 @@ def prepare_bert_data(train_path, test_path, batch_size=16):
             'raw_text': [item['raw_text'] for item in batch]
         }
     
-    # Calculate sample weights for balanced sampling
-    sample_weights = [1/class_counts[label] for label in train_labels]
-    sampler = torch.utils.data.WeightedRandomSampler(
-        weights=sample_weights,
-        num_samples=len(train_labels),
-        replacement=True
-    )
+    # Create validation split
+    train_size = int((1 - val_split) * len(train_dataset))
+    val_size = len(train_dataset) - train_size
+    train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
     
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        sampler=sampler,  # Use sampler instead of shuffle
+        shuffle=True,  # Back to shuffle instead of sampler
+        collate_fn=collate_fn
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
         collate_fn=collate_fn
     )
     
@@ -100,10 +104,10 @@ def prepare_bert_data(train_path, test_path, batch_size=16):
         collate_fn=collate_fn
     )
     
-    return train_loader, test_loader, tokenizer, class_weights
+    return train_loader, val_loader, test_loader, tokenizer, class_weights
 
 # if __name__ == "__main__":
-#     train_loader, test_loader, tokenizer = prepare_bert_data(
+#     train_loader, val_loader, test_loader, tokenizer = prepare_bert_data(
 #         'data/riloff/train.txt',
 #         'data/riloff/test.txt',
 #         batch_size=16
