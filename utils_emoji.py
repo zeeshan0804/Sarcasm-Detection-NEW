@@ -38,13 +38,23 @@ class SarcasmDataset(Dataset):
 def prepare_bert_data(train_path, test_path, batch_size=16):
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     
-    # Load train data
+    # Load and analyze train data
     train_texts, train_labels = [], []
     with open(train_path, 'r', encoding='utf-8') as f:
         for line in f:
             text, label = line.rsplit(' ', 1)
             train_texts.append(text)
             train_labels.append(int(label))
+    
+    # Calculate class weights for balanced loss
+    train_labels_np = np.array(train_labels)
+    class_counts = np.bincount(train_labels_np)
+    total_samples = len(train_labels_np)
+    class_weights = torch.FloatTensor(total_samples / (len(class_counts) * class_counts))
+    
+    print("\nClass distribution in training:")
+    for i, count in enumerate(class_counts):
+        print(f"Class {i}: {count} samples ({count/total_samples*100:.2f}%)")
     
     # Load test data
     test_texts, test_labels = [], []
@@ -68,10 +78,18 @@ def prepare_bert_data(train_path, test_path, batch_size=16):
             'raw_text': [item['raw_text'] for item in batch]
         }
     
+    # Calculate sample weights for balanced sampling
+    sample_weights = [1/class_counts[label] for label in train_labels]
+    sampler = torch.utils.data.WeightedRandomSampler(
+        weights=sample_weights,
+        num_samples=len(train_labels),
+        replacement=True
+    )
+    
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        sampler=sampler,  # Use sampler instead of shuffle
         collate_fn=collate_fn
     )
     
@@ -82,7 +100,7 @@ def prepare_bert_data(train_path, test_path, batch_size=16):
         collate_fn=collate_fn
     )
     
-    return train_loader, test_loader, tokenizer
+    return train_loader, test_loader, tokenizer, class_weights
 
 # if __name__ == "__main__":
 #     train_loader, test_loader, tokenizer = prepare_bert_data(

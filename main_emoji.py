@@ -74,7 +74,7 @@ class Attention(nn.Module):
         return context_vector
 
 class SarcasmDetector(nn.Module):
-    def __init__(self, dropout_rate=0.3, freeze_bert=True):
+    def __init__(self, dropout_rate=0.3, freeze_bert=False):  # Unfreeze BERT
         super(SarcasmDetector, self).__init__()
         
         # BERT components
@@ -84,13 +84,17 @@ class SarcasmDetector(nn.Module):
                 param.requires_grad = False
         self.bert_dim = 768
         
+        # Add layer normalization
+        self.bert_norm = nn.LayerNorm(self.bert_dim)
+        self.emoji_norm = nn.LayerNorm(300)  # for emoji embeddings
+        
         # Emoji components
         self.emoji_encoder = EmojiEncoder()
         
         # Channels and sizes
         self.cnn_out_channels = 256
         self.lstm_hidden_size = 128
-        self.dense_hidden_size = 64
+        self.dense_hidden_size = 128  # increased from 64
         
         # BERT pathway layers
         self.bert_conv = nn.Conv1d(
@@ -160,14 +164,18 @@ class SarcasmDetector(nn.Module):
         return features
 
     def forward(self, input_ids, attention_mask, raw_texts):
+        # Process text through BERT pathway with gradients
+        bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        bert_embeddings = self.bert_norm(bert_output.last_hidden_state)
+        
+        # Process emoji pathway with normalization
+        emoji_embeddings = self.emoji_encoder(raw_texts)
+        emoji_embeddings = self.emoji_norm(emoji_embeddings)
+        
         # Process text through BERT pathway
-        with torch.no_grad():
-            bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        bert_embeddings = bert_output.last_hidden_state
         text_features = self.process_bert_features(bert_embeddings)
         
         # Process emoji through emoji pathway
-        emoji_embeddings = self.emoji_encoder(raw_texts)
         emoji_features = self.process_emoji_features(emoji_embeddings)
         
         # Combine features
@@ -200,6 +208,7 @@ def train_epoch(model, train_loader, optimizer, criterion, device):
         loss = criterion(outputs, labels)
         
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
         optimizer.step()
         
         total_loss += loss.item()
@@ -270,35 +279,39 @@ def evaluate(model, test_loader, criterion, device):
     print(f"Precision: {precision:.4f}")
     print(f"Recall: {recall:.4f}")
     
-    return avg_loss, accuracy, f1, precision, recall
+    # Add F1 score for minority class (sarcastic)
+    f1_sarcastic = f1_score(all_labels, all_preds, average=None)[1]
+    print(f"F1 Score (sarcastic class): {f1_sarcastic:.4f}")
+    
+    return avg_loss, accuracy, f1_sarcastic, precision, recall
 
-# Modify optimizer and scheduler section
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
     
-    train_loader, test_loader, tokenizer = prepare_bert_data(
+    train_loader, test_loader, tokenizer, class_weights = prepare_bert_data(
         'data/iSarcasmEval/train.txt',
         'data/iSarcasmEval/test.txt',
-        batch_size=16
+        batch_size=8  # Reduced from 16
     )
     
-    model = SarcasmDetector(dropout_rate=0.3, freeze_bert=True).to(device)
+    model = SarcasmDetector(dropout_rate=0.3, freeze_bert=False).to(device)
     
-    # Try a larger learning rate
-    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)  # increased from 2e-5
+    # Separate BERT and task-specific parameters for different learning rates
+    bert_params = list(model.bert.parameters())
+    other_params = [p for n, p in model.named_parameters() if not n.startswith('bert.')]
     
-    # Define the criterion (loss function)
-    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW([
+        {'params': bert_params, 'lr': 1e-5},  # Reduced from 2e-5
+        {'params': other_params, 'lr': 5e-4}  # Increased from 1e-4
+    ])
     
-    # Make scheduler more aggressive
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='min',
-        patience=2,  # reduced from 3
-        factor=0.1,  # more aggressive reduction from 0.5
-        min_lr=1e-6
-    )
+    # More aggressive class weights
+    class_weights = torch.FloatTensor([1.0, 3.5]).to(device)  # Higher weight for minority class
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    
+    # Gradient clipping
+    max_grad_norm = 1.0
     
     model_path = 'sarcasm_detector_model_i.pth'
     
@@ -315,6 +328,14 @@ if __name__ == "__main__":
     print("Training model...")
     total_train_time = 0
     
+    # Add learning rate warmup
+    num_warmup_steps = 100
+    def get_lr_multiplier(step):
+        if step < num_warmup_steps:
+            return float(step) / float(max(1, num_warmup_steps))
+        return 1.0
+    
+    total_steps = 0
     for epoch in range(25):
         print(f'\nEpoch {epoch+1}/25')
         train_loss, epoch_time = train_epoch(model, train_loader, optimizer, criterion, device)
