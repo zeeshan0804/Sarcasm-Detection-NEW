@@ -8,11 +8,12 @@ import numpy as np
 from typing import List, Optional
 import gensim.models as gsm
 from pathlib import Path
+import time  # Add at top with other imports
 
 class EmojiEncoder(nn.Module):
     """Encodes emoji sequences into fixed-dimensional embeddings."""
     
-    def __init__(self, emoji_dim: int = 300, model_path: str = 'emoji2vec.bin'):  # Back to 300
+    def __init__(self, emoji_dim: int = 768, model_path: str = 'emoji2vec.bin'):  # Changed to match BERT dim
         """
         Args:
             emoji_dim: Output dimension of emoji embeddings
@@ -34,13 +35,13 @@ class EmojiEncoder(nn.Module):
             texts: List of strings potentially containing emojis
             
         Returns:
-            Tensor of shape (batch_size, emoji_dim) containing emoji embeddings
+            Tensor of shape (batch_size, seq_len, emoji_dim) containing emoji embeddings
         """
         batch_size = len(texts)
         device = next(self.projection.parameters()).device
         
-        # Pre-allocate output tensor
-        emoji_embeddings = torch.zeros(batch_size, self.emoji2vec.vector_size)
+        # Pre-allocate output tensor - adding sequence length dimension
+        emoji_embeddings = torch.zeros(batch_size, 128, self.emoji2vec.vector_size)  # Adding seq length dim
         
         for i, text in enumerate(texts):
             # Extract emojis present in vocabulary
@@ -49,11 +50,18 @@ class EmojiEncoder(nn.Module):
             if emojis:
                 # Get embeddings for all emojis in text
                 emoji_vecs = [self.emoji2vec[emoji] for emoji in emojis]
-                emoji_embeddings[i] = torch.tensor(np.mean(emoji_vecs, axis=0))
+                # Stack emoji vectors along sequence dimension
+                emoji_seq = torch.tensor(np.stack(emoji_vecs))
+                # Pad or truncate to fixed sequence length
+                if len(emoji_seq) > 128:
+                    emoji_embeddings[i] = emoji_seq[:128]
+                else:
+                    emoji_embeddings[i, :len(emoji_seq)] = emoji_seq
                 
-        # Move to same device as model and project to target dimension
+        # Move to same device as model and project each embedding in the sequence
         emoji_embeddings = emoji_embeddings.to(device)
-        return self.projection(emoji_embeddings)
+        emoji_embeddings = self.projection(emoji_embeddings)  # Shape: [batch_size, seq_len, emoji_dim]
+        return emoji_embeddings
     
 class Attention(nn.Module):
     def __init__(self, lstm_hidden_size):
@@ -81,6 +89,7 @@ class SarcasmDetector(nn.Module):
         self.lstm_hidden_size = 128
         self.dense_hidden_size = 64
         
+        # Both BERT and emoji features will go through these layers
         self.conv1d = nn.Conv1d(
             in_channels=self.bert_dim,
             out_channels=self.cnn_out_channels,
@@ -99,8 +108,8 @@ class SarcasmDetector(nn.Module):
         
         self.attention = Attention(self.lstm_hidden_size)
         
-        # Adjust fusion layer for 300-dim emoji features
-        combined_features_size = self.lstm_hidden_size * 2 + 300  # LSTM (256) + emoji (300)
+        # Update fusion layer dimension - now both features are same size
+        combined_features_size = self.lstm_hidden_size * 4  # 2 features × (lstm_hidden_size * 2)
         self.fusion = nn.Linear(combined_features_size, self.dense_hidden_size)
         self.dense1 = nn.Linear(self.dense_hidden_size, self.dense_hidden_size)
         self.dense2 = nn.Linear(self.dense_hidden_size, 2)
@@ -109,29 +118,32 @@ class SarcasmDetector(nn.Module):
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)
 
-    def forward(self, input_ids, attention_mask, raw_texts):
-        with torch.no_grad():
-            bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        bert_embeddings = bert_output.last_hidden_state
-        
-        cnn_in = bert_embeddings.permute(0, 2, 1)
+    def process_through_layers(self, embeddings):
+        cnn_in = embeddings.permute(0, 2, 1)
         cnn_out = self.relu(self.conv1d(cnn_in))
         lstm_in = cnn_out.permute(0, 2, 1)
         
         lstm_out, _ = self.lstm(lstm_in)
-        text_features = self.attention(lstm_out)
+        features = self.attention(lstm_out)
+        return features
+
+    def forward(self, input_ids, attention_mask, raw_texts):
+        # Process text through BERT
+        with torch.no_grad():
+            bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        bert_embeddings = bert_output.last_hidden_state
         
-        emoji_features = self.emoji_encoder(raw_texts)
+        # Process text features
+        text_features = self.process_through_layers(bert_embeddings)
         
-        # Add shape validation
-        text_features_shape = text_features.shape
-        emoji_features_shape = emoji_features.shape
-        print(f"Text features shape: {text_features_shape}")
-        print(f"Emoji features shape: {emoji_features_shape}")
+        # Process emoji features
+        emoji_embeddings = self.emoji_encoder(raw_texts)
+        emoji_features = self.process_through_layers(emoji_embeddings)
         
+        # Combine features
         combined_features = torch.cat([text_features, emoji_features], dim=1)
-        print(f"Combined features shape: {combined_features.shape}")
         
+        # Continue through dense layers
         x = self.fusion(combined_features)
         x = self.dense1(x)
         x = self.relu(x)
@@ -144,8 +156,10 @@ class SarcasmDetector(nn.Module):
 def train_epoch(model, train_loader, optimizer, criterion, device):
     model.train()
     total_loss = 0
+    start_time = time.time()
+    total_steps = len(train_loader)
     
-    for batch in train_loader:
+    for batch_idx, batch in enumerate(train_loader):
         input_ids = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
         labels = batch['labels'].to(device)
@@ -159,8 +173,13 @@ def train_epoch(model, train_loader, optimizer, criterion, device):
         optimizer.step()
         
         total_loss += loss.item()
+        
+        # Print progress every 10 batches
+        if (batch_idx + 1) % 10 == 0:
+            print(f'  Step [{batch_idx + 1}/{total_steps}], Loss: {loss.item():.4f}')
     
-    return total_loss / len(train_loader)
+    epoch_time = time.time() - start_time
+    return total_loss / len(train_loader), epoch_time
 
 def evaluate(model, test_loader, criterion, device):
     model.eval()
@@ -252,9 +271,16 @@ if __name__ == "__main__":
         test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
     
     print("Training model...")
+    total_train_time = 0
+    
     for epoch in range(25):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
-        print(f'Epoch {epoch+1}/25, Train Loss: {train_loss:.4f}')
+        print(f'\nEpoch {epoch+1}/25')
+        train_loss, epoch_time = train_epoch(model, train_loader, optimizer, criterion, device)
+        total_train_time += epoch_time
+        
+        print(f'Train Loss: {train_loss:.4f}')
+        print(f'Epoch Time: {epoch_time:.2f}s')
+        print(f'Total Training Time: {total_train_time/60:.2f}m')
         
         test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
         print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
