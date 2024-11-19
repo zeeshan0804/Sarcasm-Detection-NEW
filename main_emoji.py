@@ -306,6 +306,16 @@ if __name__ == "__main__":
         {'params': other_params, 'lr': 5e-4}  # Increased from 1e-4
     ])
     
+    # Define scheduler
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        patience=2,
+        factor=0.1,
+        min_lr=1e-6,
+        verbose=True  # Added to print when learning rate changes
+    )
+    
     # More aggressive class weights
     class_weights = torch.FloatTensor([1.0, 3.5]).to(device)  # Higher weight for minority class
     criterion = nn.CrossEntropyLoss(weight=class_weights)
