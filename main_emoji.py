@@ -8,6 +8,7 @@ import numpy as np
 from typing import List, Optional
 import gensim.models as gsm
 from pathlib import Path
+import argparse
 import time  # Add at top with other imports
 
 class EmojiEncoder(nn.Module):
@@ -298,12 +299,18 @@ def evaluate(model, test_loader, criterion, device):
     return avg_loss, accuracy, f1_sarcastic, precision, recall
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Train and evaluate Sarcasm Detector')
+    parser.add_argument('--dataset', type=str, required=True, help='Name of the dataset')
+    
+    args = parser.parse_args()
+    train_path = f'data/{args.dataset}/train.txt'
+    test_path = f'data/{args.dataset}/test.txt'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
     
     train_loader, val_loader, test_loader, tokenizer, class_weights = prepare_bert_data(
-        'data/iSarcasmEval/train.txt',
-        'data/iSarcasmEval/test.txt',
+        train_path,
+        test_path,
         batch_size=32  # Increased batch size
     )
     
