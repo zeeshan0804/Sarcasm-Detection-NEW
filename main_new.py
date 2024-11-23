@@ -200,6 +200,7 @@ if __name__ == "__main__":
     
     print("Training model...")
     for epoch in range(training_params['num_epochs']):
+        print(f'\nEpoch {epoch+1}/25')
         train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
         print(f'Epoch {epoch+1}/{training_params["num_epochs"]}, Train Loss: {train_loss:.4f}')
         
@@ -226,3 +227,8 @@ if __name__ == "__main__":
     test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
     print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
     print(f'Test F1 Score: {test_f1:.4f}, Test Precision: {test_precision:.4f}, Test Recall: {test_recall:.4f}')
+    
+    # Print embedding length and embedding matrix shape
+    embedding_matrix = model.bert.embeddings.word_embeddings.weight
+    print(f'Embedding length: {embedding_matrix.shape[1]}')
+    print(f'Embedding matrix shape: {embedding_matrix.shape}')

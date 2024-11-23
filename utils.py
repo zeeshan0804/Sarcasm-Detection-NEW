@@ -12,6 +12,8 @@ class SarcasmDataset(Dataset):
         self.labels = labels
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.avg_word_length = self.calculate_avg_word_length()
+        self.avg_sentence_length = self.calculate_avg_sentence_length()
 
     def __len__(self):
         return len(self.texts)
@@ -49,6 +51,20 @@ class SarcasmDataset(Dataset):
         text = re.sub(r'\s+', ' ', text).strip()
         return text
 
+    def calculate_avg_word_length(self):
+        total_words = 0
+        total_length = 0
+        for text in self.texts:
+            words = text.split()
+            total_words += len(words)
+            total_length += sum(len(word) for word in words)
+        return total_length / total_words if total_words > 0 else 0
+
+    def calculate_avg_sentence_length(self):
+        total_sentences = len(self.texts)
+        total_words = sum(len(text.split()) for text in self.texts)
+        return total_words / total_sentences if total_sentences > 0 else 0
+
 def prepare_bert_data(dataset_name, batch_size=16):
     
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
@@ -80,6 +96,11 @@ def prepare_bert_data(dataset_name, batch_size=16):
     # Create datasets
     train_dataset = SarcasmDataset(train_texts, train_labels, tokenizer)
     test_dataset = SarcasmDataset(test_texts, test_labels, tokenizer)
+
+    print("Average word length in train dataset:", train_dataset.avg_word_length)
+    print("Average sentence length in train dataset:", train_dataset.avg_sentence_length)
+    print("Average word length in test dataset:", test_dataset.avg_word_length)
+    print("Average sentence length in test dataset:", test_dataset.avg_sentence_length)
 
     # Create dataloaders
     train_loader = DataLoader(

@@ -300,7 +300,7 @@ def evaluate(model, test_loader, criterion, device):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train and evaluate Sarcasm Detector')
-    parser.add_argument('--dataset', type=str, required=True, help='Name of the dataset')
+    parser.add_argument('--dataset', type=str, help='Name of the dataset', default='Mishra')
     
     args = parser.parse_args()
     train_path = f'data/{args.dataset}/train.txt'
@@ -315,7 +315,11 @@ if __name__ == "__main__":
     )
     
     model = SarcasmDetector(dropout_rate=0.5, freeze_bert=False).to(device)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total number of parameters: {total_params}")
     
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Trainable parameters: {trainable_params}")
     # Separate BERT and task-specific parameters for different learning rates
     bert_params = list(model.bert.parameters())
     other_params = [p for n, p in model.named_parameters() if not n.startswith('bert.')]
