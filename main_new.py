@@ -6,87 +6,21 @@ from utils import SarcasmDataset, prepare_bert_data
 import os
 import argparse
 
-class Attention(nn.Module):
-    def __init__(self, lstm_hidden_size):
-        super(Attention, self).__init__()
-        self.attention = nn.Linear(lstm_hidden_size * 2, 1)
-
-    def forward(self, lstm_out):
-        # Apply attention mechanism
-        attn_weights = torch.softmax(self.attention(lstm_out), dim=1)
-        context_vector = torch.sum(attn_weights * lstm_out, dim=1)
-        return context_vector
-
 class SarcasmDetector(nn.Module):
-    def __init__(self, dropout_rate=0.3, freeze_bert=True):
+    def __init__(self, dropout_rate=0.3, freeze_bert=False):  # Note: changed default freeze_bert to False
         super(SarcasmDetector, self).__init__()
         
-        # BERT layer with frozen parameters
         self.bert = BertModel.from_pretrained('bert-base-uncased')
-        if freeze_bert:
-            for param in self.bert.parameters():
-                param.requires_grad = False
-        self.bert_dim = 768
-        
-        # Architecture parameters
-        self.cnn_out_channels = 256
-        self.lstm_hidden_size = 128
-        self.dense_hidden_size = 64
-        
-        # CNN layer
-        self.conv1d = nn.Conv1d(
-            in_channels=self.bert_dim,
-            out_channels=self.cnn_out_channels,
-            kernel_size=3,
-            padding=1
-        )
-        
-        # BiLSTM layer
-        self.lstm = nn.LSTM(
-            input_size=self.cnn_out_channels,
-            hidden_size=self.lstm_hidden_size,
-            num_layers=2,
-            bidirectional=True,
-            batch_first=True,
-            dropout=dropout_rate
-        )
-        
-        # Attention layer
-        self.attention = Attention(self.lstm_hidden_size)
-        
-        # Dense layers
-        self.dense1 = nn.Linear(self.lstm_hidden_size * 2, self.dense_hidden_size)
-        self.dense2 = nn.Linear(self.dense_hidden_size, 2)
-        
-        # Regularization and activation layers
         self.dropout = nn.Dropout(dropout_rate)
-        self.relu = nn.ReLU()
+        self.classifier = nn.Linear(768, 2)  # 768 is BERT's hidden size
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, input_ids, attention_mask):
-        # BERT embedding layer (frozen)
-        with torch.no_grad():
-            bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        bert_embeddings = bert_output.last_hidden_state
-        
-        # CNN feature extraction
-        cnn_in = bert_embeddings.permute(0, 2, 1)
-        cnn_out = self.relu(self.conv1d(cnn_in))
-        lstm_in = cnn_out.permute(0, 2, 1)
-        
-        # BiLSTM sequence learning
-        lstm_out, _ = self.lstm(lstm_in)
-        
-        # Apply attention
-        context_vector = self.attention(lstm_out)
-        
-        # Classification layers
-        x = self.dense1(context_vector)
-        x = self.relu(x)
-        x = self.dropout(x)
-        logits = self.dense2(x)
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        pooled_output = outputs.pooler_output
+        x = self.dropout(pooled_output)
+        logits = self.classifier(x)
         predictions = self.softmax(logits)
-        
         return predictions
 
 def train_epoch(model, train_loader, optimizer, criterion, device):
@@ -159,16 +93,17 @@ if __name__ == "__main__":
         dataset_name=args.dataset,
         batch_size=args.batch_size
     )
+    print("Train data:", train_loader)
     
     model_params = {
         'dropout_rate': 0.3,
-        'freeze_bert': True
+        'freeze_bert': False  # We want to fine-tune BERT
     }
     
     training_params = {
-        'learning_rate': args.learning_rate,
-        'num_epochs': args.num_epochs,
-        'batch_size': args.batch_size
+        'learning_rate': 2e-5,  # Typical BERT fine-tuning learning rate
+        'num_epochs': 10,       # Reduced epochs as BERT fine-tuning usually requires fewer
+        'batch_size': 16
     }
     
     model = SarcasmDetector(**model_params).to(device)
