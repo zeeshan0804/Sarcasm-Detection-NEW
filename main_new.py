@@ -188,17 +188,23 @@ if __name__ == "__main__":
         
         scheduler.step(test_loss)
         
+        # Save model after each epoch
+        epoch_model_path = f"{args.model_path.split('.')[0]}_epoch{epoch+1}.pth"
+        torch.save(model.state_dict(), epoch_model_path)
+        print(f"Model saved to {epoch_model_path}")
+        
         if test_loss < best_loss:
             best_loss = test_loss
             patience_counter = 0
+            # Save the best model
             torch.save(model.state_dict(), args.model_path)
-            print(f"Model saved to {args.model_path}")
+            print(f"Best model saved to {args.model_path}")
         else:
             patience_counter += 1
             if patience_counter >= patience:
                 print("Early stopping triggered")
                 break
-    
+
     total_time = time.time() - total_start_time
     print(f"\nTraining complete! Total time: {total_time/60:.2f} minutes")
 
