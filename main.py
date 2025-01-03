@@ -3,6 +3,7 @@ import torch.nn as nn
 from transformers import BertModel
 from sklearn.metrics import f1_score, precision_score, recall_score
 from utils import SarcasmDataset, prepare_bert_data
+from transformers import AutoModel, AutoTokenizer
 import os
 import argparse
 
@@ -21,12 +22,12 @@ class SarcasmDetector(nn.Module):
     def __init__(self, dropout_rate=0.3, freeze_bert=True):
         super(SarcasmDetector, self).__init__()
         
-        # BERT layer with frozen parameters
-        self.bert = BertModel.from_pretrained('bert-base-uncased')
+        # ModernBERT layer with frozen parameters
+        self.bert = AutoModel.from_pretrained('answerdotai/ModernBERT-base')
         if freeze_bert:
             for param in self.bert.parameters():
                 param.requires_grad = False
-        self.bert_dim = 768
+        self.bert_dim = self.bert.config.hidden_size  # Dynamically get hidden size
         
         # Architecture parameters
         self.cnn_out_channels = 256
@@ -64,7 +65,7 @@ class SarcasmDetector(nn.Module):
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, input_ids, attention_mask):
-        # BERT embedding layer (frozen)
+        # BERT embedding layer (frozen if specified)
         with torch.no_grad():
             bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         bert_embeddings = bert_output.last_hidden_state
