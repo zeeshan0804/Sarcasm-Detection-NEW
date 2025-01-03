@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 import pandas as pd
 import numpy as np
 import re
@@ -25,7 +25,7 @@ class SarcasmDataset(Dataset):
         # Preprocess the text
         text = self.preprocess_text(text)
 
-        # Encode the text using BERT tokenizer
+        # Encode the text using ModernBERT tokenizer
         encoding = self.tokenizer.encode_plus(
             text,
             add_special_tokens=True,
@@ -67,7 +67,7 @@ class SarcasmDataset(Dataset):
 
 def prepare_bert_data(dataset_name, batch_size=16):
     
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = AutoTokenizer.from_pretrained('answerdotai/ModernBERT-base')
     
     train_path = f'data/{dataset_name}/train.txt'
     test_path = f'data/{dataset_name}/test.txt'
