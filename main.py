@@ -70,16 +70,29 @@ class SarcasmDetector(nn.Module):
             bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         bert_embeddings = bert_output.last_hidden_state
         
+        # Debugging print statements
+        print("BERT embeddings:", bert_embeddings)
+        
         # CNN feature extraction
         cnn_in = bert_embeddings.permute(0, 2, 1)
         cnn_out = self.relu(self.conv1d(cnn_in))
+        
+        # Debugging print statements
+        print("CNN output:", cnn_out)
+        
         lstm_in = cnn_out.permute(0, 2, 1)
         
         # BiLSTM sequence learning
         lstm_out, _ = self.lstm(lstm_in)
         
+        # Debugging print statements
+        print("LSTM output:", lstm_out)
+        
         # Apply attention
         context_vector = self.attention(lstm_out)
+        
+        # Debugging print statements
+        print("Context vector:", context_vector)
         
         # Classification layers
         x = self.dense1(context_vector)
@@ -87,6 +100,10 @@ class SarcasmDetector(nn.Module):
         x = self.dropout(x)
         logits = self.dense2(x)
         predictions = self.softmax(logits)
+        
+        # Debugging print statements
+        print("Logits:", logits)
+        print("Predictions:", predictions)
         
         return predictions
 
