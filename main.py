@@ -15,7 +15,15 @@ class Attention(nn.Module):
     def forward(self, lstm_out):
         # Apply attention mechanism
         attn_weights = torch.softmax(self.attention(lstm_out), dim=1)
+        
+        # Debugging print statements
+        print("Attention weights:", attn_weights)
+        
         context_vector = torch.sum(attn_weights * lstm_out, dim=1)
+        
+        # Debugging print statements
+        print("Context vector after attention:", context_vector)
+        
         return context_vector
 
 class SarcasmDetector(nn.Module):
