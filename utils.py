@@ -94,6 +94,10 @@ def prepare_bert_data(dataset_name, batch_size=16):
     # print("Train label distribution:", pd.Series(train_labels).value_counts())
     # print("Test label distribution:", pd.Series(test_labels).value_counts())
 
+    # Ensure labels are within valid range
+    train_labels = [label for label in train_labels if label in [0, 1]]
+    test_labels = [label for label in test_labels if label in [0, 1]]
+
     # Create datasets
     train_dataset = SarcasmDataset(train_texts, train_labels, tokenizer)
     test_dataset = SarcasmDataset(test_texts, test_labels, tokenizer)

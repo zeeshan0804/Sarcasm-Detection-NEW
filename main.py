@@ -90,7 +90,7 @@ class SarcasmDetector(nn.Module):
         
         return predictions
 
-def train_epoch(model, train_loader, optimizer, criterion, device):
+def train_epoch(model, train_loader, optimizer, criterion, device, clip_value=1.0):
     model.train()
     total_loss = 0
     
@@ -104,8 +104,21 @@ def train_epoch(model, train_loader, optimizer, criterion, device):
         outputs = model(input_ids, attention_mask)
         loss = criterion(outputs, labels)
         
+        # Check for NaN loss
+        if torch.isnan(loss):
+            print("NaN loss encountered")
+            print("Input IDs:", input_ids)
+            print("Attention Mask:", attention_mask)
+            print("Labels:", labels)
+            print("Outputs:", outputs)
+            continue
+        
         # Backward pass
         loss.backward()
+        
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), clip_value)
+        
         optimizer.step()
         
         total_loss += loss.item()
