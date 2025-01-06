@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer
+from sklearn.metrics import f1_score, precision_score, recall_score
 import pandas as pd
 import numpy as np
 import re
@@ -116,6 +117,37 @@ def prepare_bert_data(dataset_name, batch_size=16):
     )
 
     return train_loader, test_loader, tokenizer
+
+def evaluate(model, test_loader, criterion, device, zero_division=0):
+    model.eval()
+    total_loss = 0
+    correct = 0
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for batch in test_loader:
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch['labels'].to(device)
+            
+            outputs = model(input_ids, attention_mask)
+            loss = criterion(outputs, labels)
+            total_loss += loss.item()
+            
+            preds = outputs.argmax(dim=1)
+            correct += (preds == labels).sum().item()
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+    
+    avg_loss = total_loss / len(test_loader)
+    accuracy = correct / len(test_loader.dataset)
+    f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=zero_division)
+    precision = precision_score(all_labels, all_preds, average='weighted', zero_division=zero_division)
+    recall = recall_score(all_labels, all_preds, average='weighted', zero_division=zero_division)
+    
+    return avg_loss, accuracy, f1, precision, recall
 
 # if __name__ == "__main__":
 #     parser = argparse.ArgumentParser(description='Prepare BERT data')

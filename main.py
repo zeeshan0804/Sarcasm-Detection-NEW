@@ -112,7 +112,7 @@ def train_epoch(model, train_loader, optimizer, criterion, device):
     
     return total_loss / len(train_loader)
 
-def evaluate(model, test_loader, criterion, device):
+def evaluate(model, test_loader, criterion, device, zero_division=0):
     model.eval()
     total_loss = 0
     correct = 0
@@ -137,9 +137,9 @@ def evaluate(model, test_loader, criterion, device):
     
     avg_loss = total_loss / len(test_loader)
     accuracy = correct / len(test_loader.dataset)
-    f1 = f1_score(all_labels, all_preds, average='weighted')
-    precision = precision_score(all_labels, all_preds, average='weighted')
-    recall = recall_score(all_labels, all_preds, average='weighted')
+    f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=zero_division)
+    precision = precision_score(all_labels, all_preds, average='weighted', zero_division=zero_division)
+    recall = recall_score(all_labels, all_preds, average='weighted', zero_division=zero_division)
     
     return avg_loss, accuracy, f1, precision, recall
 
@@ -195,7 +195,7 @@ if __name__ == "__main__":
         model.to(device)
         
         # Evaluate the model
-        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
+        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device, zero_division=0)
         print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
         print(f'Test F1 Score: {test_f1:.4f}, Test Precision: {test_precision:.4f}, Test Recall: {test_recall:.4f}')
     
@@ -204,7 +204,7 @@ if __name__ == "__main__":
         train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
         print(f'Epoch {epoch+1}/{training_params["num_epochs"]}, Train Loss: {train_loss:.4f}')
         
-        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
+        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device, zero_division=0)
         print(f'Epoch {epoch+1}/{training_params["num_epochs"]}, Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
 
         scheduler.step(test_loss)
@@ -224,6 +224,6 @@ if __name__ == "__main__":
 
     model.load_state_dict(torch.load(args.model_path))
     
-    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device)
+    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate(model, test_loader, criterion, device, zero_division=0)
     print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')
     print(f'Test F1 Score: {test_f1:.4f}, Test Precision: {test_precision:.4f}, Test Recall: {test_recall:.4f}')
