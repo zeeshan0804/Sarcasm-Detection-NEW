@@ -131,8 +131,8 @@ if __name__ == "__main__":
     print("Using device:", device)
     
     train_loader, test_loader, tokenizer = prepare_bert_data(
-        'data/riloff/train.txt',
-        'data/riloff/test.txt',
+        'data/sarcasm_IAC_v1_corpus/train.txt',
+        'data/sarcasm_IAC_v1_corpus/test.txt',
          batch_size=16
     )
     
