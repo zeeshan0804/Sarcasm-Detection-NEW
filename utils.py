@@ -66,12 +66,9 @@ class SarcasmDataset(Dataset):
         total_words = sum(len(text.split()) for text in self.texts)
         return total_words / total_sentences if total_sentences > 0 else 0
 
-def prepare_bert_data(dataset_name, batch_size=16):
-    
+def prepare_bert_data(train_path, test_path, batch_size=16):
+    # Update the function to use direct paths instead of dataset name
     tokenizer = AutoTokenizer.from_pretrained('answerdotai/ModernBERT-base')
-    
-    train_path = f'data/{dataset_name}/train.txt'
-    test_path = f'data/{dataset_name}/test.txt'
     
     # Load train data
     train_texts, train_labels = [], []
