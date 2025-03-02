@@ -131,8 +131,8 @@ if __name__ == "__main__":
     print("Using device:", device)
     
     train_loader, test_loader, tokenizer = prepare_bert_data(
-        'data/riloff/train.txt',
-        'data/riloff/test.txt',
+        '/kaggle/working/train_sarcasm_augmented.txt',
+        '/kaggle/working/test_sarcasm.txt',
         batch_size=16
     )
     
